@@ -53,7 +53,9 @@
 
 using namespace std::chrono_literals;
 
-class ArucoMarkerPublisherComponent
+namespace aruco_ros
+{
+class ArucoMarkerPublisher
 {
 private:
   rclcpp::Node::SharedPtr node_;
@@ -87,8 +89,8 @@ private:
   std_msgs::msg::UInt32MultiArray marker_list_msg_;
 
 public:
-  ArucoMarkerPublisherComponent()
-  : node_(rclcpp::Node::make_shared("marker_publisher")), useCamInfo_(true)
+  ArucoMarkerPublisher(const rclcpp::NodeOptions & options)
+  : node_(rclcpp::Node::make_shared("marker_publisher", options)), useCamInfo_(true)
   {
     setup();
   }
@@ -112,7 +114,7 @@ public:
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
     it_ = std::make_unique<image_transport::ImageTransport>(node_);
-    image_sub_ = it_->subscribe("/image", 1, &ArucoMarkerPublisherComponent::image_callback, this);
+    image_sub_ = it_->subscribe("/image", 1, &ArucoMarkerPublisher::image_callback, this);
 
     node_->get_parameter_or<bool>("use_camera_info", useCamInfo_, true);
     if (useCamInfo_) {
@@ -287,3 +289,7 @@ public:
     }
   }
 };
+} // namespace aruco_ros
+
+#include "rclcpp_components/register_node_macro.hpp"
+RCLCPP_COMPONENTS_REGISTER_NODE(aruco_ros::ArucoMarkerPublisher)

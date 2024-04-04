@@ -95,7 +95,7 @@ ament_target_dependencies(marker_publisher_component ${THIS_PACKAGE_INCLUDE_DEPE
 target_link_libraries(marker_publisher_component ${OpenCV_LIBRARIES})
 
 rclcpp_components_register_node(marker_publisher_component
-  PLUGIN "aruco_ros::ArucoMarkerPublisherComponent"
+  PLUGIN aruco_ros::ArucoMarkerPublisher
   EXECUTABLE marker_publisher)
 
 if(BUILD_TESTING)
