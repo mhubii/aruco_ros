@@ -68,7 +68,7 @@ ament_target_dependencies(single_component ${THIS_PACKAGE_INCLUDE_DEPENDS})
 target_link_libraries(single_component ${OpenCV_LIBRARIES})
 
 rclcpp_components_register_node(single_component
-  PLUGIN aruco_ros::ArucoSimple
+  PLUGIN aruco_ros::ArUcoSimple
   EXECUTABLE single)
 
 add_executable(double src/simple_double.cpp

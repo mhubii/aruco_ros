@@ -53,7 +53,7 @@
 #include "aruco_ros/aruco_ros_utils.hpp"
 
 namespace aruco_ros {
-class ArucoSimple {
+class ArUcoSimple {
 private:
   rclcpp::Node::SharedPtr node_;
   rclcpp::Node::SharedPtr subNode_;
@@ -62,6 +62,7 @@ private:
   tf2::Stamped<tf2::Transform> rightToLeft_;
   bool useRectifiedImages_;
   aruco::MarkerDetector detector_;
+  std::string detection_mode_;
   std::vector<aruco::Marker> markers_;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr cam_info_sub_;
   bool cam_info_received;
@@ -78,6 +79,7 @@ private:
   std::string reference_frame_;
 
   double marker_size_;
+  float min_marker_size_; // percentage of image area
   int marker_id_;
 
   std::unique_ptr<image_transport::ImageTransport> it_;
@@ -90,7 +92,7 @@ private:
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr on_parameter_change_handle_;
 
 public:
-  ArucoSimple(const rclcpp::NodeOptions &options)
+  ArUcoSimple(const rclcpp::NodeOptions &options)
       : node_(rclcpp::Node::make_shared("aruco_single", options)), cam_info_received(false) {
     setup();
   }
@@ -137,33 +139,23 @@ public:
     node_->declare_parameter<std::string>("marker_frame", "");
     node_->declare_parameter<bool>("image_is_rectified", true);
     node_->declare_parameter<float>("min_marker_size", 0.02);
-    node_->declare_parameter<std::string>("detection_mode", "");
+    node_->declare_parameter<std::string>("detection_mode", "DM_FAST");
 
-    // Parameter callbacks
-    on_parameter_change_handle_ = node_->add_on_set_parameters_callback(
-        std::bind(&ArucoSimple::on_set_parameter, this, std::placeholders::_1));
+    node_->get_parameter_or<float>("min_marker_size", min_marker_size_, 0.02);
 
-    float min_marker_size; // percentage of image area
-    node_->get_parameter_or<float>("min_marker_size", min_marker_size, 0.02);
-
-    std::string detection_mode;
-    node_->get_parameter_or<std::string>("detection_mode", detection_mode, "DM_FAST");
-    if (detection_mode == "DM_FAST") {
-      detector_.setDetectionMode(aruco::DM_FAST, min_marker_size);
-    } else if (detection_mode == "DM_VIDEO_FAST") {
-      detector_.setDetectionMode(aruco::DM_VIDEO_FAST, min_marker_size);
+    node_->get_parameter_or<std::string>("detection_mode", detection_mode_, "DM_FAST");
+    if (detection_mode_ == "DM_FAST") {
+      detector_.setDetectionMode(aruco::DM_FAST, min_marker_size_);
+    } else if (detection_mode_ == "DM_VIDEO_FAST") {
+      detector_.setDetectionMode(aruco::DM_VIDEO_FAST, min_marker_size_);
     } else {
       // Aruco version 2 mode
-      detector_.setDetectionMode(aruco::DM_NORMAL, min_marker_size);
+      detector_.setDetectionMode(aruco::DM_NORMAL, min_marker_size_);
     }
 
-    RCLCPP_INFO_STREAM(node_->get_logger(),
-                       "Marker size min: " << min_marker_size << " of image area");
-    RCLCPP_INFO_STREAM(node_->get_logger(), "Detection mode: " << detection_mode);
-
-    image_sub_ = it_->subscribe("/image", 1, &ArucoSimple::on_image, this);
+    image_sub_ = it_->subscribe("/image", 1, &ArUcoSimple::on_image, this);
     cam_info_sub_ = node_->create_subscription<sensor_msgs::msg::CameraInfo>(
-        "/camera_info", 1, std::bind(&ArucoSimple::on_cam_info, this, std::placeholders::_1));
+        "/camera_info", 1, std::bind(&ArUcoSimple::on_cam_info, this, std::placeholders::_1));
 
     image_pub_ = it_->advertise(node_->get_name() + std::string("/result"), 1);
     debug_pub_ = it_->advertise(node_->get_name() + std::string("/debug"), 1);
@@ -174,11 +166,11 @@ public:
     marker_pub_ = subNode_->create_publisher<visualization_msgs::msg::Marker>("marker", 10);
     pixel_pub_ = subNode_->create_publisher<geometry_msgs::msg::PointStamped>("pixel", 10);
 
-    node_->get_parameter_or<double>("marker_size_", marker_size_, 0.05);
-    node_->get_parameter_or<int>("marker_id_", marker_id_, 300);
-    node_->get_parameter_or<std::string>("reference_frame_", reference_frame_, "");
-    node_->get_parameter_or<std::string>("camera_frame_", camera_frame_, "");
-    node_->get_parameter_or<std::string>("marker_frame_", marker_frame_, "");
+    node_->get_parameter_or<double>("marker_size", marker_size_, 0.05);
+    node_->get_parameter_or<int>("marker_id", marker_id_, 300);
+    node_->get_parameter_or<std::string>("reference_frame", reference_frame_, "");
+    node_->get_parameter_or<std::string>("camera_frame", camera_frame_, "");
+    node_->get_parameter_or<std::string>("marker_frame", marker_frame_, "");
     node_->get_parameter_or<bool>("image_is_rectified", useRectifiedImages_, true);
 
     rcpputils::assert_true(
@@ -190,16 +182,32 @@ public:
       reference_frame_ = camera_frame_;
     }
 
-    RCLCPP_INFO(node_->get_logger(),
-                "ArUco node_ started with marker size of %f m and marker id to track: %d",
-                marker_size_, marker_id_);
-    RCLCPP_INFO(node_->get_logger(),
-                "ArUco node_ will publish pose to TF with %s as parent and %s as child.",
-                reference_frame_.c_str(), marker_frame_.c_str());
+    log_parameters();
 
-    // dyn_rec_server.setCallback(boost::bind(&ArucoSimple::reconf_callback, this, _1, _2));
-    RCLCPP_INFO(node_->get_logger(), "Setup of aruco_simple node_ is successful!");
+    // Parameter callbacks
+    // dyn_rec_server.setCallback(boost::bind(&ArUcoSimple::reconf_callback, this, _1, _2));
+    on_parameter_change_handle_ = node_->add_on_set_parameters_callback(
+        std::bind(&ArUcoSimple::on_set_parameter, this, std::placeholders::_1));
+    RCLCPP_INFO(node_->get_logger(), "Setup of ArUcoSimple successful!");
     return true;
+  }
+
+  void log_parameters() {
+    RCLCPP_INFO(node_->get_logger(), "*****************");
+    RCLCPP_INFO(node_->get_logger(), "   ArUcoSimple   ");
+    RCLCPP_INFO(node_->get_logger(), "*****************");
+    RCLCPP_INFO(node_->get_logger(), " * Marker size: %f m", marker_size_);
+    RCLCPP_INFO(node_->get_logger(), " * Min marker size: %f %% of image area", min_marker_size_);
+    RCLCPP_INFO(node_->get_logger(), " * Marker id: %d", marker_id_);
+    RCLCPP_INFO(node_->get_logger(), " * Reference frame: %s", reference_frame_.c_str());
+    RCLCPP_INFO(node_->get_logger(), " * Camera frame: %s", camera_frame_.c_str());
+    RCLCPP_INFO(node_->get_logger(), " * Marker frame: %s", marker_frame_.c_str());
+    RCLCPP_INFO(node_->get_logger(), " * Image is rectified: %s",
+                useRectifiedImages_ ? "true" : "false");
+    RCLCPP_INFO(node_->get_logger(), " * Detection mode: %s", detection_mode_.c_str());
+    RCLCPP_INFO(node_->get_logger(),
+                "ArUco node will publish pose to TF with %s as parent and %s as child.",
+                reference_frame_.c_str(), marker_frame_.c_str());
   }
 
   bool get_transform(const std::string &refFrame, const std::string &childFrame,
@@ -384,4 +392,4 @@ public:
 } // namespace aruco_ros
 
 #include "rclcpp_components/register_node_macro.hpp"
-RCLCPP_COMPONENTS_REGISTER_NODE(aruco_ros::ArucoSimple)
+RCLCPP_COMPONENTS_REGISTER_NODE(aruco_ros::ArUcoSimple)
