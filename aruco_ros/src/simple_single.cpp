@@ -35,10 +35,6 @@
 
 #include <iostream>
 
-#include "aruco/aruco.h"
-#include "aruco/cvdrawingutils.h"
-#include "aruco_ros/aruco_ros_utils.hpp"
-
 #include "cv_bridge/cv_bridge.h"
 #include "geometry_msgs/msg/point_stamped.hpp"
 #include "geometry_msgs/msg/vector3_stamped.hpp"
@@ -46,15 +42,21 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rcpputils/asserts.hpp"
 #include "sensor_msgs/image_encodings.hpp"
-#include "tf2_ros/transform_broadcaster.h"
-#include "tf2_ros/buffer.h"
-#include "tf2_ros/transform_listener.h"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
+#include "tf2_ros/buffer.h"
+#include "tf2_ros/transform_broadcaster.h"
+#include "tf2_ros/transform_listener.h"
 #include "visualization_msgs/msg/marker.hpp"
 
-class ArucoSimple : public rclcpp::Node
+#include "aruco/aruco.h"
+#include "aruco/cvdrawingutils.h"
+#include "aruco_ros/aruco_ros_utils.hpp"
+
+namespace aruco_ros {
+class ArucoSimple
 {
 private:
+  rclcpp::Node::SharedPtr node;
   rclcpp::Node::SharedPtr subNode;
   cv::Mat inImage;
   aruco::CameraParameters camParam;
@@ -87,22 +89,28 @@ private:
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
 
 public:
-  ArucoSimple()
-  : Node("aruco_single"), cam_info_received(false)
+  ArucoSimple(const rclcpp::NodeOptions & options)
+  : node(rclcpp::Node::make_shared("aruco_single", options)), cam_info_received(false)
   {
+    setup();
+  }
+
+  rclcpp::node_interfaces::NodeBaseInterface::SharedPtr get_node_base_interface() const
+  {
+    return node->get_node_base_interface();
   }
 
   bool setup()
   {
-    tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
+    tf_buffer_ = std::make_unique<tf2_ros::Buffer>(node->get_clock());
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
-    subNode = this->create_sub_node(this->get_name());
+    subNode = node->create_sub_node(node->get_name());
 
-    it_ = std::make_unique<image_transport::ImageTransport>(shared_from_this());
-    tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(this);
-    if (this->has_parameter("corner_refinement")) {
+    it_ = std::make_unique<image_transport::ImageTransport>(node);
+    tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(node);
+    if (node->has_parameter("corner_refinement")) {
       RCLCPP_WARN(
-        this->get_logger(),
+        node->get_logger(),
         "Corner refinement options have been removed in ArUco 3.0.0, "
         "corner_refinement ROS parameter is deprecated");
     }
@@ -122,23 +130,23 @@ public:
     }
 
     // Print parameters of ArUco marker detector:
-    RCLCPP_INFO_STREAM(this->get_logger(), "Threshold method: " << thresh_method);
+    RCLCPP_INFO_STREAM(node->get_logger(), "Threshold method: " << thresh_method);
 
     // Declare node parameters
-    this->declare_parameter<double>("marker_size", 0.05);
-    this->declare_parameter<int>("marker_id", 300);
-    this->declare_parameter<std::string>("reference_frame", "");
-    this->declare_parameter<std::string>("camera_frame", "");
-    this->declare_parameter<std::string>("marker_frame", "");
-    this->declare_parameter<bool>("image_is_rectified", true);
-    this->declare_parameter<float>("min_marker_size", 0.02);
-    this->declare_parameter<std::string>("detection_mode", "");
+    node->declare_parameter<double>("marker_size", 0.05);
+    node->declare_parameter<int>("marker_id", 300);
+    node->declare_parameter<std::string>("reference_frame", "");
+    node->declare_parameter<std::string>("camera_frame", "");
+    node->declare_parameter<std::string>("marker_frame", "");
+    node->declare_parameter<bool>("image_is_rectified", true);
+    node->declare_parameter<float>("min_marker_size", 0.02);
+    node->declare_parameter<std::string>("detection_mode", "");
 
     float min_marker_size;  // percentage of image area
-    this->get_parameter_or<float>("min_marker_size", min_marker_size, 0.02);
+    node->get_parameter_or<float>("min_marker_size", min_marker_size, 0.02);
 
     std::string detection_mode;
-    this->get_parameter_or<std::string>("detection_mode", detection_mode, "DM_FAST");
+    node->get_parameter_or<std::string>("detection_mode", detection_mode, "DM_FAST");
     if (detection_mode == "DM_FAST") {
       mDetector.setDetectionMode(aruco::DM_FAST, min_marker_size);
     } else if (detection_mode == "DM_VIDEO_FAST") {
@@ -149,17 +157,17 @@ public:
     }
 
     RCLCPP_INFO_STREAM(
-      this->get_logger(), "Marker size min: " << min_marker_size << " of image area");
-    RCLCPP_INFO_STREAM(this->get_logger(), "Detection mode: " << detection_mode);
+      node->get_logger(), "Marker size min: " << min_marker_size << " of image area");
+    RCLCPP_INFO_STREAM(node->get_logger(), "Detection mode: " << detection_mode);
 
     image_sub = it_->subscribe("/image", 1, &ArucoSimple::image_callback, this);
-    cam_info_sub = this->create_subscription<sensor_msgs::msg::CameraInfo>(
+    cam_info_sub = node->create_subscription<sensor_msgs::msg::CameraInfo>(
       "/camera_info", 1, std::bind(
         &ArucoSimple::cam_info_callback, this,
         std::placeholders::_1));
 
-    image_pub = it_->advertise(this->get_name() + std::string("/result"), 1);
-    debug_pub = it_->advertise(this->get_name() + std::string("/debug"), 1);
+    image_pub = it_->advertise(node->get_name() + std::string("/result"), 1);
+    debug_pub = it_->advertise(node->get_name() + std::string("/debug"), 1);
     pose_pub = subNode->create_publisher<geometry_msgs::msg::PoseStamped>("pose", 100);
     transform_pub =
       subNode->create_publisher<geometry_msgs::msg::TransformStamped>("transform", 100);
@@ -167,12 +175,12 @@ public:
     marker_pub = subNode->create_publisher<visualization_msgs::msg::Marker>("marker", 10);
     pixel_pub = subNode->create_publisher<geometry_msgs::msg::PointStamped>("pixel", 10);
 
-    this->get_parameter_or<double>("marker_size", marker_size, 0.05);
-    this->get_parameter_or<int>("marker_id", marker_id, 300);
-    this->get_parameter_or<std::string>("reference_frame", reference_frame, "");
-    this->get_parameter_or<std::string>("camera_frame", camera_frame, "");
-    this->get_parameter_or<std::string>("marker_frame", marker_frame, "");
-    this->get_parameter_or<bool>("image_is_rectified", useRectifiedImages, true);
+    node->get_parameter_or<double>("marker_size", marker_size, 0.05);
+    node->get_parameter_or<int>("marker_id", marker_id, 300);
+    node->get_parameter_or<std::string>("reference_frame", reference_frame, "");
+    node->get_parameter_or<std::string>("camera_frame", camera_frame, "");
+    node->get_parameter_or<std::string>("marker_frame", marker_frame, "");
+    node->get_parameter_or<bool>("image_is_rectified", useRectifiedImages, true);
 
     rcpputils::assert_true(
       camera_frame != "" && marker_frame != "",
@@ -184,14 +192,14 @@ public:
     }
 
     RCLCPP_INFO(
-      this->get_logger(), "ArUco node started with marker size of %f m and marker id to track: %d",
+      node->get_logger(), "ArUco node started with marker size of %f m and marker id to track: %d",
       marker_size, marker_id);
     RCLCPP_INFO(
-      this->get_logger(), "ArUco node will publish pose to TF with %s as parent and %s as child.",
+      node->get_logger(), "ArUco node will publish pose to TF with %s as parent and %s as child.",
       reference_frame.c_str(), marker_frame.c_str());
 
     // dyn_rec_server.setCallback(boost::bind(&ArucoSimple::reconf_callback, this, _1, _2));
-    RCLCPP_INFO(this->get_logger(), "Setup of aruco_simple node is successful!");
+    RCLCPP_INFO(node->get_logger(), "Setup of aruco_simple node is successful!");
     return true;
   }
 
@@ -205,7 +213,7 @@ public:
         refFrame, childFrame, tf2::TimePointZero,
         tf2::durationFromSec(0.5), &errMsg))
     {
-      RCLCPP_ERROR_STREAM(this->get_logger(), "Unable to get pose from TF: " << errMsg);
+      RCLCPP_ERROR_STREAM(node->get_logger(), "Unable to get pose from TF: " << errMsg);
       return false;
     } else {
       try {
@@ -214,7 +222,7 @@ public:
             0.5));
       } catch (const tf2::TransformException & e) {
         RCLCPP_ERROR_STREAM(
-          this->get_logger(),
+          node->get_logger(),
           "Error in lookupTransform of " << childFrame << " in " << refFrame << " : " << e.what());
         return false;
       }
@@ -232,7 +240,7 @@ public:
       (marker_pub->get_subscription_count() == 0) &&
       (pixel_pub->get_subscription_count() == 0))
     {
-      RCLCPP_DEBUG(this->get_logger(), "No subscribers, not looking for ArUco markers");
+      RCLCPP_DEBUG(node->get_logger(), "No subscribers, not looking for ArUco markers");
       return;
     }
 
@@ -339,7 +347,7 @@ public:
           debug_pub.publish(debug_msg.toImageMsg());
         }
       } catch (cv_bridge::Exception & e) {
-        RCLCPP_ERROR(this->get_logger(), "cv_bridge exception: %s", e.what());
+        RCLCPP_ERROR(node->get_logger(), "cv_bridge exception: %s", e.what());
         return;
       }
     }
@@ -370,12 +378,7 @@ public:
 //    }
 //  }
 };
+} // namespace aruco_ros
 
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  std::shared_ptr<ArucoSimple> aruco_simple = std::make_shared<ArucoSimple>();
-  aruco_simple->setup();
-  rclcpp::spin(aruco_simple);
-  rclcpp::shutdown();
-}
+#include "rclcpp_components/register_node_macro.hpp"
+RCLCPP_COMPONENTS_REGISTER_NODE(aruco_ros::ArucoSimple)

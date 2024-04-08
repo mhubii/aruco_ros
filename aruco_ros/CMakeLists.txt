@@ -51,19 +51,25 @@ target_include_directories(aruco_ros_utils
 ament_target_dependencies(aruco_ros_utils ${THIS_PACKAGE_INCLUDE_DEPENDS})
 target_link_libraries(aruco_ros_utils ${OpenCV_LIBRARIES})
 
-add_executable(single src/simple_single.cpp
-                      src/aruco_ros_utils.cpp)
+add_library(single_component
+  SHARED  
+  src/simple_single.cpp
+  src/aruco_ros_utils.cpp)
 
-target_include_directories(single
+target_include_directories(single_component
   PUBLIC
   include)
 
-target_include_directories(single
+target_include_directories(single_component
   SYSTEM PUBLIC
   ${OpenCV_INCLUDE_DIRS}
 )
-ament_target_dependencies(single ${THIS_PACKAGE_INCLUDE_DEPENDS})
-target_link_libraries(single ${OpenCV_LIBRARIES})
+ament_target_dependencies(single_component ${THIS_PACKAGE_INCLUDE_DEPENDS})
+target_link_libraries(single_component ${OpenCV_LIBRARIES})
+
+rclcpp_components_register_node(single_component
+  PLUGIN aruco_ros::ArucoSimple
+  EXECUTABLE single)
 
 add_executable(double src/simple_double.cpp
                       src/aruco_ros_utils.cpp)
@@ -116,7 +122,7 @@ install(TARGETS aruco_ros_utils
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin)
 
-install(TARGETS marker_publisher_component single double
+install(TARGETS marker_publisher_component single_component double
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME})
 
