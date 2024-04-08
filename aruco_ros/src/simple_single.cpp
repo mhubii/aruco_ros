@@ -139,18 +139,21 @@ public:
     node_->declare_parameter<std::string>("marker_frame", "");
     node_->declare_parameter<bool>("image_is_rectified", true);
     node_->declare_parameter<float>("min_marker_size", 0.02);
-    node_->declare_parameter<std::string>("detection_mode", "DM_FAST");
+    node_->declare_parameter<std::string>("detection_mode", "DM_NORMAL");
 
     node_->get_parameter_or<float>("min_marker_size", min_marker_size_, 0.02);
 
-    node_->get_parameter_or<std::string>("detection_mode", detection_mode_, "DM_FAST");
+    node_->get_parameter_or<std::string>("detection_mode", detection_mode_, "DM_NORMAL");
     if (detection_mode_ == "DM_FAST") {
       detector_.setDetectionMode(aruco::DM_FAST, min_marker_size_);
     } else if (detection_mode_ == "DM_VIDEO_FAST") {
       detector_.setDetectionMode(aruco::DM_VIDEO_FAST, min_marker_size_);
-    } else {
+    } else if (detection_mode_ == "DM_NORMAL") {
       // Aruco version 2 mode
       detector_.setDetectionMode(aruco::DM_NORMAL, min_marker_size_);
+    } else {
+      RCLCPP_ERROR(node_->get_logger(), "Unknown detection mode: %s", detection_mode_.c_str());
+      return false;
     }
 
     image_sub_ = it_->subscribe("/image", 1, &ArUcoSimple::on_image, this);
