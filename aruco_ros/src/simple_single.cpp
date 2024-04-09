@@ -65,7 +65,7 @@ private:
   std::string detection_mode_;
   std::vector<aruco::Marker> markers_;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr cam_info_sub_;
-  bool cam_info_received;
+  bool cam_info_received_;
   image_transport::Publisher image_pub_;
   image_transport::Publisher debug_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_pub_;
@@ -93,7 +93,7 @@ private:
 
 public:
   ArUcoSimple(const rclcpp::NodeOptions &options)
-      : node_(rclcpp::Node::make_shared("aruco_single", options)), cam_info_received(false) {
+      : node_(rclcpp::Node::make_shared("aruco_single", options)), cam_info_received_(false) {
     setup();
   }
 
@@ -248,7 +248,7 @@ public:
       return;
     }
 
-    if (cam_info_received) {
+    if (cam_info_received_) {
       builtin_interfaces::msg::Time curr_stamp = msg->header.stamp;
       cv_bridge::CvImagePtr cv_ptr;
       try {
@@ -358,7 +358,7 @@ public:
 
   // wait for one camerainfo, then shut down that subscriber
   void on_cam_info(const sensor_msgs::msg::CameraInfo &msg) {
-    if (!cam_info_received) {
+    if (!cam_info_received_) {
       cam_param_ = aruco_ros::rosCameraInfo2ArucoCamParams(msg, use_rectified_images_);
 
       // handle cartesian offset between stereo pairs
@@ -366,7 +366,7 @@ public:
       right_to_left_.setIdentity();
       right_to_left_.setOrigin(tf2::Vector3(-msg.p[3] / msg.p[0], -msg.p[7] / msg.p[5], 0.0));
 
-      cam_info_received = true;
+      cam_info_received_ = true;
     }
   }
 
